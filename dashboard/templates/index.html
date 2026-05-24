@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Predictive Maintenance Dashboard · Dual-Scale Mixer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav class="navbar">
+  <div class="nav-inner">
+    <div class="nav-brand">
+      <div class="nav-icon">⚙</div>
+      <div>
+        <div class="nav-title">Predictive Maintenance Dashboard</div>
+        <div class="nav-subtitle">Dual-Scale Mixer · NASA C-MAPSS Turbofan Engine Dataset · RUL Prediction</div>
+      </div>
+    </div>
+    <div class="nav-meta">
+      <div>German University in Cairo</div>
+      <div>Supervisor: <strong>Dr. Tamer Mostafa</strong></div>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main Content ── -->
+<div class="page">
+
+  <!-- Controls -->
+  <div class="card controls-card">
+    <div class="controls-inner">
+      <div class="field-group">
+        <label class="field-label" for="subsetSelect">Dataset Subset</label>
+        <select id="subsetSelect" class="select-input">
+          <option value="FD001">FD001 — Single Fault · Low Noise</option>
+          <option value="FD002">FD002 — Single Fault · High Noise</option>
+          <option value="FD003">FD003 — Two Faults · Low Noise</option>
+          <option value="FD004">FD004 — Two Faults · High Noise</option>
+        </select>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="engineSelect">Engine ID</label>
+        <select id="engineSelect" class="select-input"></select>
+      </div>
+      <div class="controls-loader" id="loader">
+        <div class="spinner"></div>
+        <span>Loading…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status + Metric Cards -->
+  <div class="cards-row">
+    <div class="card health-card" id="healthCard">
+      <div class="health-dot" id="healthDot"></div>
+      <div class="health-body">
+        <div class="health-status" id="healthStatus">—</div>
+        <div class="health-label">Engine Health Status</div>
+      </div>
+    </div>
+    <div class="card metric-card">
+      <div class="metric-label">Predicted RUL</div>
+      <div class="metric-value" id="predRul">—</div>
+      <div class="metric-unit">cycles remaining</div>
+    </div>
+    <div class="card metric-card">
+      <div class="metric-label">True RUL</div>
+      <div class="metric-value" id="trueRul">—</div>
+      <div class="metric-unit">cycles remaining</div>
+    </div>
+    <div class="card metric-card">
+      <div class="metric-label">Prediction Error</div>
+      <div class="metric-value error-val" id="rulError">—</div>
+      <div class="metric-unit">pred − true</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="charts-row">
+    <div class="card chart-card">
+      <div class="chart-header">
+        <div class="chart-title">RUL Trajectory — All Cycles</div>
+        <div class="chart-subtitle" id="trajectoryLabel">Engine 1 · FD001</div>
+      </div>
+      <div id="trajectoryChart" class="chart-area"></div>
+    </div>
+    <div class="card chart-card">
+      <div class="chart-header">
+        <div class="chart-title">Predicted vs True RUL</div>
+        <div class="chart-subtitle" id="scatterLabel">FD001 · All Engines</div>
+      </div>
+      <div id="scatterChart" class="chart-area"></div>
+    </div>
+  </div>
+
+  <!-- Performance Table -->
+  <div class="card table-card">
+    <div class="chart-header">
+      <div class="chart-title">Model Performance — All Subsets</div>
+      <div class="chart-subtitle">Dual-Scale Mixer on NASA C-MAPSS · Best values highlighted in green</div>
+    </div>
+    <div class="table-scroll">
+      <table class="perf-table">
+        <thead>
+          <tr>
+            <th>Subset</th>
+            <th>Engines</th>
+            <th>RMSE ↓</th>
+            <th>MAE ↓</th>
+            <th>MAPE ↓</th>
+            <th>NASA Score ↓</th>
+            <th>R² ↑</th>
+            <th>Train Time</th>
+          </tr>
+        </thead>
+        <tbody id="perfBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- .page -->
+
+<footer class="footer">
+  <span>Bachelor Thesis · German University in Cairo · 2025</span>
+  <span class="footer-sep">·</span>
+  <span>Model: Dual-Scale Mixer · Dataset: NASA C-MAPSS FD001–FD004</span>
+</footer>
+
+<script>
+'use strict';
+
+/* ── Plotly base layout shared by all charts ── */
+const BASE = {
+  paper_bgcolor: 'transparent',
+  plot_bgcolor:  'transparent',
+  font: { family: 'Inter, sans-serif', color: '#9ca3af', size: 12 },
+  xaxis: {
+    gridcolor:     '#1f2937',
+    linecolor:     '#374151',
+    tickcolor:     '#9ca3af',
+    zerolinecolor: '#374151',
+  },
+  yaxis: {
+    gridcolor:     '#1f2937',
+    linecolor:     '#374151',
+    tickcolor:     '#9ca3af',
+    zerolinecolor: '#374151',
+  },
+  legend: {
+    bgcolor:     'rgba(11,17,32,0.85)',
+    bordercolor: '#374151',
+    borderwidth: 1,
+    font: { size: 11 },
+  },
+  hoverlabel: {
+    bgcolor:    '#1e293b',
+    bordercolor:'#475569',
+    font: { color: '#f1f5f9', family: 'Inter, sans-serif' },
+  },
+};
+
+const CFG = { responsive: true, displayModeBar: false };
+
+/* ── Helpers ── */
+const $ = id => document.getElementById(id);
+
+function getSubset() { return $('subsetSelect').value; }
+function getEngine()  { return parseInt($('engineSelect').value, 10); }
+
+function setLoading(on) { $('loader').classList.toggle('visible', on); }
+
+async function apiFetch(path) {
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`HTTP ${res.status} — ${path}`);
+  return res.json();
+}
+
+/* ── Engine list ── */
+async function loadEngines(subset) {
+  const data = await apiFetch(`/api/engines/${subset}`);
+  const sel = $('engineSelect');
+  sel.innerHTML = data.engines
+    .map(e => `<option value="${e}">Engine ${e}</option>`)
+    .join('');
+  return data.engines[0];
+}
+
+/* ── Health status card ── */
+function updateHealth(d) {
+  const card = $('healthCard');
+  const dot  = $('healthDot');
+  const lbl  = $('healthStatus');
+
+  card.className = `card health-card ${d.level}`;
+  dot.className  = `health-dot ${d.level}`;
+  lbl.className  = `health-status ${d.level}`;
+  lbl.textContent = d.status;
+
+  $('predRul').textContent = d.pred_rul.toFixed(1);
+  $('trueRul').textContent = d.true_rul.toFixed(1);
+
+  const errEl = $('rulError');
+  errEl.textContent = (d.error >= 0 ? '+' : '') + d.error.toFixed(1);
+  errEl.dataset.sign = d.error >= 0 ? 'pos' : 'neg';
+}
+
+/* ── RUL Trajectory chart ── */
+function plotTrajectory(data, subset, eid) {
+  const maxC = data.cycles.at(-1);
+
+  const traces = [
+    {
+      x: data.cycles, y: data.true_rul,
+      name: 'True RUL',
+      mode: 'lines',
+      line: { color: '#22c55e', width: 2.5 },
+      hovertemplate: 'Cycle %{x}<br>True RUL: <b>%{y}</b><extra></extra>',
+    },
+    {
+      x: data.cycles, y: data.pred_rul,
+      name: 'Predicted RUL',
+      mode: 'lines',
+      line: { color: '#60a5fa', width: 2.5, dash: 'dash' },
+      hovertemplate: 'Cycle %{x}<br>Predicted RUL: <b>%{y}</b><extra></extra>',
+    },
+  ];
+
+  const layout = {
+    ...BASE,
+    margin: { l: 55, r: 75, t: 12, b: 45 },
+    xaxis: {
+      ...BASE.xaxis,
+      title: { text: 'Relative Cycle', font: { color: '#6b7280' } },
+      range: [1, maxC],
+    },
+    yaxis: {
+      ...BASE.yaxis,
+      title: { text: 'RUL (cycles)', font: { color: '#6b7280' } },
+    },
+    shapes: [
+      {
+        type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 80, y1: 80,
+        line: { color: '#f59e0b', width: 1.5, dash: 'dot' },
+      },
+      {
+        type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 30, y1: 30,
+        line: { color: '#ef4444', width: 1.5, dash: 'dot' },
+      },
+    ],
+    annotations: [
+      {
+        x: 1.01, xref: 'paper', y: 80, yref: 'y',
+        text: 'Warning', showarrow: false, xanchor: 'left',
+        font: { color: '#f59e0b', size: 10 },
+      },
+      {
+        x: 1.01, xref: 'paper', y: 30, yref: 'y',
+        text: 'Critical', showarrow: false, xanchor: 'left',
+        font: { color: '#ef4444', size: 10 },
+      },
+    ],
+  };
+
+  Plotly.react('trajectoryChart', traces, layout, CFG);
+  $('trajectoryLabel').textContent = `Engine ${eid} · ${subset}`;
+}
+
+/* ── Scatter chart ── */
+function plotScatter(data, subset) {
+  const allVals = [...data.true_rul, ...data.pred_rul].filter(Number.isFinite);
+  const mn = Math.max(0, Math.floor(Math.min(...allVals) * 0.93));
+  const mx = Math.ceil(Math.max(...allVals) * 1.06);
+
+  const colors = data.pred_rul.map(v =>
+    v > 80 ? '#22c55e' : v >= 30 ? '#f59e0b' : '#ef4444'
+  );
+
+  const traces = [
+    {
+      x: data.true_rul, y: data.pred_rul,
+      text: data.engine_ids.map(id => `Engine ${id}`),
+      mode: 'markers',
+      name: 'Engines',
+      marker: { color: colors, size: 7, opacity: 0.85 },
+      hovertemplate: '<b>%{text}</b><br>True: %{x:.1f}<br>Pred: %{y:.1f}<extra></extra>',
+    },
+    {
+      x: [mn, mx], y: [mn, mx],
+      mode: 'lines',
+      name: 'Perfect Prediction',
+      line: { color: '#475569', width: 1.5, dash: 'dot' },
+      hoverinfo: 'skip',
+    },
+  ];
+
+  const layout = {
+    ...BASE,
+    margin: { l: 55, r: 15, t: 12, b: 45 },
+    xaxis: {
+      ...BASE.xaxis,
+      title: { text: 'True RUL', font: { color: '#6b7280' } },
+      range: [mn, mx],
+    },
+    yaxis: {
+      ...BASE.yaxis,
+      title: { text: 'Predicted RUL', font: { color: '#6b7280' } },
+      range: [mn, mx],
+    },
+  };
+
+  Plotly.react('scatterChart', traces, layout, CFG);
+  $('scatterLabel').textContent = `${subset} · ${data.engine_ids.length} Engines`;
+}
+
+/* ── Performance table ── */
+function renderTable(rows) {
+  const best = {
+    RMSE:       Math.min(...rows.map(r => r.RMSE)),
+    MAE:        Math.min(...rows.map(r => r.MAE)),
+    MAPE:       Math.min(...rows.map(r => r.MAPE)),
+    NASA_Score: Math.min(...rows.map(r => r.NASA_Score)),
+    R2:         Math.max(...rows.map(r => r.R2)),
+  };
+
+  const cls = (val, key) => (val === best[key] ? 'mono best' : 'mono');
+
+  $('perfBody').innerHTML = rows.map(r => `
+    <tr>
+      <td><span class="subset-tag">${r.Subset}</span></td>
+      <td>${r.Engines}</td>
+      <td class="${cls(r.RMSE,       'RMSE')}">${r.RMSE.toFixed(4)}</td>
+      <td class="${cls(r.MAE,        'MAE')}">${r.MAE.toFixed(4)}</td>
+      <td class="${cls(r.MAPE,       'MAPE')}">${(r.MAPE * 100).toFixed(2)}%</td>
+      <td class="${cls(r.NASA_Score, 'NASA_Score')}">${r.NASA_Score.toFixed(2)}</td>
+      <td class="${cls(r.R2,         'R2')}">${r.R2.toFixed(4)}</td>
+      <td>${r.Time_s.toFixed(1)} s</td>
+    </tr>
+  `).join('');
+}
+
+/* ── Data loaders ── */
+async function loadSubsetData(subset, eid) {
+  const [health, traj, scatter] = await Promise.all([
+    apiFetch(`/api/health/${subset}/${eid}`),
+    apiFetch(`/api/trajectory/${subset}/${eid}`),
+    apiFetch(`/api/scatter/${subset}`),
+  ]);
+  updateHealth(health);
+  plotTrajectory(traj, subset, eid);
+  plotScatter(scatter, subset);
+}
+
+async function loadEngineData(subset, eid) {
+  const [health, traj] = await Promise.all([
+    apiFetch(`/api/health/${subset}/${eid}`),
+    apiFetch(`/api/trajectory/${subset}/${eid}`),
+  ]);
+  updateHealth(health);
+  plotTrajectory(traj, subset, eid);
+}
+
+/* ── Event handlers ── */
+async function onSubsetChange() {
+  const subset = getSubset();
+  setLoading(true);
+  try {
+    const firstEid = await loadEngines(subset);
+    await loadSubsetData(subset, firstEid);
+  } catch (err) {
+    console.error('Subset change error:', err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function onEngineChange() {
+  const subset = getSubset();
+  const eid = getEngine();
+  if (!eid) return;
+  setLoading(true);
+  try {
+    await loadEngineData(subset, eid);
+  } catch (err) {
+    console.error('Engine change error:', err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+/* ── Init ── */
+async function init() {
+  $('subsetSelect').addEventListener('change', onSubsetChange);
+  $('engineSelect').addEventListener('change', onEngineChange);
+
+  setLoading(true);
+  try {
+    await Promise.all([
+      onSubsetChange(),
+      apiFetch('/api/performance').then(d => renderTable(d.data)),
+    ]);
+  } catch (err) {
+    console.error('Init error:', err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
