@@ -164,9 +164,9 @@ Key finding: **Ps30 (HPC outlet static pressure)** is the dominant sensor across
 If you use this code or results in your research, please cite:
 
 ```bibtex
-@thesis{[yourlastname]2026predictive,
+@thesis{Mohammad2026predictive,
   title  = {Predictive Maintenance System with {RUL} Dashboard},
-  author = {[Your Full Name]},
+  author = {Mohammad Moustafa Mohammad},
   school = {German University in Cairo},
   year   = {2026},
   type   = {Bachelor Thesis}
