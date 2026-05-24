@@ -25,6 +25,9 @@ results/*_predictions.csv
 results/*_lastcycle.csv
 results/predictions.csv
 
+# Result plots
+results/*.png
+
 # OS
 .DS_Store
 Thumbs.db
