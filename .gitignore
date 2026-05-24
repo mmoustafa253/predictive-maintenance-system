@@ -20,6 +20,11 @@ env/
 *.pth
 *.ckpt
 
+# Subset-specific result files (predictions and last-cycle data)
+results/*_predictions.csv
+results/*_lastcycle.csv
+results/predictions.csv
+
 # OS
 .DS_Store
 Thumbs.db
